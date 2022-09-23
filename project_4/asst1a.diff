@@ -1,0 +1,367 @@
+diff --git a/kern/asst1/catsem.c b/kern/asst1/catsem.c
+index 2811e1d..1c1d719 100644
+--- a/kern/asst1/catsem.c
++++ b/kern/asst1/catsem.c
+@@ -46,7 +46,47 @@
+ 
+ 
+ //Global Variables
+-
++struct semaphore * cats_queue;
++struct semaphore * mice_queue;
++
++struct semaphore * mutex;
++struct semaphore * cmutex;
++struct semaphore * mmutex;
++struct semaphore * dish_mutex;
++struct semaphore * dish_mutex1;
++
++struct semaphore * program_done;
++struct semaphore * done;
++struct semaphore * gatesem;
++
++volatile int cats_wait_count;
++volatile int mice_wait_count;
++
++typedef int bool;
++#define TRUE 1
++#define FALSE 0
++/*        volatile bool all_dishes_available;
++        volatile bool no_cat_eat;
++        volatile bool first_cat_eat;
++        volatile bool another_cat_eat;
++        volatile bool dish1_busy;
++        volatile bool dish2_busy;
++	volatile bool no_mice_eat;
++	volatile bool first_mice_eat;
++	volatile bool another_mice_eat;
++*/
++
++volatile int mydish;
++volatile int no_cat_eat;
++volatile int first_cat_eat;
++volatile int another_cat_eat;
++volatile int dish1_busy;
++volatile int dish2_busy;
++volatile int no_mice_eat;
++volatile int first_mice_eat;
++volatile int another_mice_eat;
++volatile int all_dishes_available;
++volatile int gate;
+ 
+ /*
+  * 
+@@ -54,6 +94,55 @@
+  * 
+  */
+ 
++void switchturn() 
++{
++//	kprintf("Inside switch\n");
++        P(mutex);
++        
++
++                if (mice_wait_count > 0)
++                {
++ 			//kprintf("switched to mice");
++                        //V(mice_queue);
++                        V(mice_queue);
++                }
++                else
++                {
++                        if (cats_wait_count > 0)
++                        {
++            		       //kprintf("switched to next cats");
++		               //V(cats_queue); 
++		               V(cats_queue);
++                        } 
++			else 
++			{
++				all_dishes_available = 1;
++				V(program_done);
++         		}
++
++	        }
++
++
++	V(mutex);
++
++
++}
++
++void cleanup() 
++{
++        sem_destroy(cats_queue);
++        sem_destroy(mice_queue);
++        sem_destroy(mutex);
++        sem_destroy(mmutex);
++        sem_destroy(cmutex);
++        sem_destroy(dish_mutex);
++ 	sem_destroy(dish_mutex1);
++        sem_destroy(program_done);
++        sem_destroy(done);
++	sem_destroy(gatesem);
++
++}
++
+ 
+ /*
+  * catsem()
+@@ -80,11 +169,94 @@ catsem(void * unusedpointer,
+          */
+ 
+ 	(void) unusedpointer;
+- 	(void) catnumber
++ //	(void) catnumber
+        
++int i;
++for (i = 0; i < 5; i++) 
++{
++
+ 
++	int mydish = 0;
++
++	P(cmutex);
++	if (all_dishes_available == 1)
++	{
++		all_dishes_available = 0;
++		V(cats_queue);
++	}
++	cats_wait_count++;
++	kprintf("Cat %lu is waiting\n", catnumber);
++	/*if ((catnumber != 0) && (gate == 1)) {
++	V(gatesem);
++	}*/
++	V(cmutex);
++
++	P(cats_queue);
++	if (no_cat_eat == 1) 
++	{
++		/*if (gate == 1)
++		{
++		//clocksleep(1);
++		P(gatesem);
++		gate = 0;
++		}*/
++		no_cat_eat = 0;
++		first_cat_eat = 1;
++	} else first_cat_eat = 0;
++
++	if (first_cat_eat == 1) 
++	{
++		P(cmutex);
++		if (cats_wait_count > 1)
++		{
++			another_cat_eat = 1;
++			V(cats_queue);
++		}
++		V(cmutex);
+ 	}
+-        
++
++	P(dish_mutex);
++	if (dish1_busy == 0)
++	{
++		dish1_busy = 1;
++		mydish = 1;
++	}
++	else
++	{
++		assert(dish2_busy = 0);
++		dish2_busy = 1;
++		mydish = 2;
++	}
++	V(dish_mutex);
++
++	kprintf("Cat %lu is eating\n", catnumber);
++	clocksleep(1);
++	kprintf("Cat %lu done eating\n", catnumber);
++
++	P(dish_mutex);
++	if (mydish == 1)
++	{
++		dish1_busy = 0;
++		
++	} else dish2_busy = 0;
++	V(dish_mutex);
++	P(cmutex);
++	cats_wait_count--;
++	V(cmutex);
++
++	if (first_cat_eat = 1)
++	{
++		if (another_cat_eat = 1)
++		{
++			P(done);
++			kprintf("first cat leaving\n");
++			no_cat_eat = 1;
++			switchturn();			
++		}
++	} else V(done);
++
++}
++}        
+ 
+ /*
+  * mousesem()
+@@ -112,10 +284,86 @@ mousesem(void * unusedpointer,
+          */
+ 
+ 	(void) unusedpointer;
+-	(void) mousenumber
++//	(void) mousenumber
+    
+-	
+-	}
++int i;
++for (i = 0; i < 5; i++) 
++{
++
++	int mydish = 0;
++
++        P(mmutex);
++        if (all_dishes_available == 1)
++        {
++                all_dishes_available = 0;
++                V(mice_queue);
++        }
++        mice_wait_count++;
++        kprintf("Mouse %lu is waiting\n", mousenumber);
++        V(mmutex);
++
++        P(mice_queue);
++        if (no_mice_eat == 1)
++        {
++                no_mice_eat = 0;
++                first_mice_eat = 1;
++        } else first_mice_eat = 0;
++
++        if (first_mice_eat == 1)
++        {
++                P(mmutex);
++                if (mice_wait_count > 1)
++                {
++                        another_mice_eat = 1;
++                        V(mice_queue);
++                }
++                V(mmutex);
++        }
++
++        P(dish_mutex);
++        if (dish1_busy == 0)
++        {
++                dish1_busy = 1;
++                mydish = 1;
++        }
++        else
++        {
++                assert(dish2_busy = 0);
++                dish2_busy = 1;
++                mydish = 2;
++        }
++        V(dish_mutex);
++
++        kprintf("Mouse %lu is eating\n", mousenumber);
++        clocksleep(1);
++        kprintf("Mouse %lu done eating\n", mousenumber);
++
++        P(dish_mutex);
++        if (mydish == 1)
++        {
++                dish1_busy = 0;
++
++        } else dish2_busy = 0;
++        V(dish_mutex);
++        P(mmutex);
++	mice_wait_count--;
++        V(mmutex);
++
++        if (first_mice_eat = 1)
++        {
++                if (another_mice_eat = 1)
++                {
++                        P(done);
++                        kprintf("first Mouse leaving\n");
++                        no_mice_eat = 1;
++                        switchturn();
++                }
++        } else V(done);
++
++
++
++}
++}
+ 
+ 
+ /*
+@@ -141,7 +389,34 @@ catmousesem(int nargs,
+ {
+         int index, error;
+ 
+-	
++	cats_queue = sem_create("cats_queue", 0);
++	mice_queue = sem_create("mice_queue", 0);
++
++	mutex = sem_create("mutex", 1);
++	cmutex = sem_create("cmutex", 1);
++	mmutex = sem_create("mmutex", 1);
++
++	dish_mutex1 = sem_create("dish_mutex1", 1);	
++	dish_mutex = sem_create("dish_mutex", 1);
++
++	program_done = sem_create("program_done", 0);
++	done = sem_create("done", 0);
++	gatesem = sem_create("gatesem", 0);
++
++	cats_wait_count = 0;
++	mice_wait_count = 0;
++
++//        all_dishes_available = 1;
++        no_cat_eat = 1;
++	no_mice_eat = 1;
++        first_cat_eat = 0;
++	first_mice_eat = 0;
++        another_cat_eat = 0;
++	another_mice_eat = 0;
++        dish1_busy = 0;
++        dish2_busy = 0;
++	all_dishes_available = 1;
++	gate = 1;
+ 	 /*
+          * Avoid unused variable warnings.
+          */
+@@ -200,7 +475,8 @@ catmousesem(int nargs,
+         }
+ 
+ 	
+-	
++	P(program_done);
++	cleanup();
+ 
+         return 0;
+ }
+diff --git a/kern/compile/ASST1/catsem.o b/kern/compile/ASST1/catsem.o
+index 73fe36b..a9cf3c1 100644
+Binary files a/kern/compile/ASST1/catsem.o and b/kern/compile/ASST1/catsem.o differ
+diff --git a/kern/compile/ASST1/kernel b/kern/compile/ASST1/kernel
+index 078446f..75b4f79 100755
+Binary files a/kern/compile/ASST1/kernel and b/kern/compile/ASST1/kernel differ
+diff --git a/kern/compile/ASST1/vers.c b/kern/compile/ASST1/vers.c
+index f4ff289..8d58acc 100644
+--- a/kern/compile/ASST1/vers.c
++++ b/kern/compile/ASST1/vers.c
+@@ -1,3 +1,3 @@
+ /* This file is automatically generated. Edits will be lost.*/
+-const int buildversion = 27;
++const int buildversion = 43;
+ const char buildconfig[] = "ASST1";
+diff --git a/kern/compile/ASST1/vers.o b/kern/compile/ASST1/vers.o
+index 131df35..f286a78 100644
+Binary files a/kern/compile/ASST1/vers.o and b/kern/compile/ASST1/vers.o differ
+diff --git a/kern/compile/ASST1/version b/kern/compile/ASST1/version
+index f64f5d8..920a139 100644
+--- a/kern/compile/ASST1/version
++++ b/kern/compile/ASST1/version
+@@ -1 +1 @@
+-27
++43
